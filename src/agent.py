@@ -144,9 +144,9 @@ from livekit.agents import (
     metrics,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import cartesia, deepgram, noise_cancellation, openai, silero, sarvam
+from livekit.plugins import openai, deepgram, cartesia, silero, noise_cancellation, soniox, gladia, elevenlabs, sarvam, google 
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
-
+import os
 logger = logging.getLogger("agent")
 
 # Load local secrets for dev runs
@@ -156,34 +156,33 @@ load_dotenv(".env.local")
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="""You are a hospital feedback collection agent for Amor hospital calling patients about their recent hospital experience. 
+            instructions="""You are a female hospital feedback collection agent for Amor hospital calling patients about their recent hospital experience. 
         First line: "Hello, this is Amore Hospital calling to ask about your recent visit."
         Speak clearly, at a slightly faster pace, and keep the conversation concise and direct. 
         Be warm but not overly polite. Never mention that you are an AI or assistant.
 
         LANGUAGE BEHAVIOR (EXTREMELY IMPORTANT)
-        Your first task is to determine the patient’s preferred language: English or Hindi.
+        Your first task is to determine the patient’s preferred language: English Hindi or Telugu.
 
         Once the patient selects a language:
         •⁠  ⁠Store it internally as ⁠ preferred_language ⁠.
-        If the preferred_language is Telugu, you must trigger the transfer_call_tool. If they choose hindi or english, continue with this flow.
         •⁠  ⁠From that moment, speak ONLY in ⁠ preferred_language ⁠.
         •⁠  ⁠Do NOT switch back to English unless the patient explicitly asks.
         •⁠  ⁠Do NOT mix languages.
         •⁠  ⁠Do NOT translate phrases from the system prompt. Generate natural sentences fresh
         in the chosen language.
 
-        HINDI STYLE GUIDELINES
-        If ⁠ preferred_language ⁠ = Hindi:
-        •⁠  ⁠Use simple, everyday conversational Hindi.
-        •⁠  ⁠No formal or Sanskrit-heavy vocabulary.
+        HINDI OR TELUGU STYLE GUIDELINES
+        If ⁠ preferred_language ⁠ = Hindi or Telugu:
+        •⁠  ⁠Use simple, everyday conversational language.
+        •⁠  ⁠No formal or Sanskrit-heavy vocabulary. Do not use complicated Hindi or Teulugu words for simple conversational words like "appointment", "hospital", "doctor", etc.  
         •⁠  ⁠Use short, clear sentences.
         •⁠  ⁠Keep it natural, like how hospital staff normally talk to patients.
         •⁠  ⁠If you use any medical term, briefly explain it in simple Hindi.
 
         CALL FLOW
         1.⁠ ⁠Greet the patient briefly.
-        2.⁠ ⁠Ask them which language they prefer (English or Hindi).
+        2.⁠ ⁠Ask them which language they prefer (English, Hindi or Telugu).
         3.⁠ ⁠Once the patient chooses, continue ONLY in that language.
         4.⁠ ⁠Ask if they received their medical reports.
         5.⁠ ⁠Ask if their hospital experience was satisfactory.
@@ -213,6 +212,14 @@ class Assistant(Agent):
         3.⁠ ⁠NEVER call endCall before speaking the closing line.
         4.⁠ ⁠NEVER shorten the closing line to one word (like "okay" or "bye").
 
+        If the caller mentions any emergency:
+        - severe chest pain
+        - breathing difficulty
+        - heavy bleeding
+        - collapse or accident
+        Immediately say one calm sentence and transfer to hospital staff.
+
+
         INTERNAL CLASSIFICATION (DO NOT SAY OUT LOUD)
         Classify the call as one of:
         •⁠  ⁠no_issue
@@ -237,6 +244,8 @@ class Assistant(Agent):
         return "sunny with a temperature of 70 degrees."
 
 
+
+
 def prewarm(proc: JobProcess):
     # Preload VAD into shared process state
     proc.userdata["vad"] = silero.VAD.load()
@@ -249,26 +258,52 @@ async def entrypoint(ctx: JobContext):
     # Voice pipeline tuned for telephony
     session = AgentSession(
         # LLM, the brain
-        llm=openai.LLM(model="gpt-4o"),
+        llm=openai.LLM(model="gpt-4.1"),
+        # llm="moonshotai/kimi-k2-instruct",
         # STT, the ears
         # stt=deepgram.STT(model="nova-3", language="multi"),
-        stt=sarvam.STT(
-            # language="hi-IN",
-            language="unknown",
-            model="saarika:v2.5",
-        ),
+        # stt=sarvam.STT(
+        #     # language="hi-IN",
+        #     language="unknown",
+        #     model="saarika:v2.5",
+        # ),
         # TTS, the voice
         # tts=cartesia.TTS(voice="95d51f79-c397-46f9-b49a-23763d3eaa2d"),
-        tts=sarvam.TTS(
-            target_language_code="hi-IN",
-            speaker="anushka",
-        ),
+        # stt=soniox.STT(api_key=os.environ["SONIOX_API_KEY"]),
+        stt="deepgram/nova-3:multi",
+        # tts=sarvam.TTS(
+        #     target_language_code="hi-IN",
+        #     speaker="anushka",
+        # ),
+        
+        tts=cartesia.TTS(
+      model="sonic-3",
+      voice="927c55a9-74a9-4272-871e-a559c8989abe",
+    #   voice="faf0731e-dfb9-4cfc-8119-259a79b27e12"
+   ),
         # Turn detection and VAD
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
+        min_endpointing_delay=0.1,
+        max_endpointing_delay=1.0,
+        min_interruption_duration=0.25,
+        min_interruption_words=1,
+
+        # false interruption recovery
+        false_interruption_timeout=1.0,
+        resume_false_interruption=True,
+        discard_audio_if_uninterruptible=True,
         # Let the LLM start drafting before end of turn
-        preemptive_generation=True,
+        # preemptive_generation=True,
     )
+
+    @session.on("user_state_changed")
+    def on_user_state_changed(ev):
+        print("User state:", ev.new_state)
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        print("Agent state:", ev.new_state)
 
     @session.on("agent_false_interruption")
     def _on_agent_false_interruption(ev: AgentFalseInterruptionEvent):
@@ -288,6 +323,8 @@ async def entrypoint(ctx: JobContext):
         logger.info(f"Usage: {summary}")
 
     ctx.add_shutdown_callback(log_usage)
+    
+    
 
     # Start the session, join with telephony tuned noise cancellation
     await session.start(
@@ -295,7 +332,8 @@ async def entrypoint(ctx: JobContext):
         room=ctx.room,
         room_input_options=RoomInputOptions(
             # Use BVCTelephony for phone audio
-            noise_cancellation=noise_cancellation.BVCTelephony(),
+            noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
+
         ),
     )
 

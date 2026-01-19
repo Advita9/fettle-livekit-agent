@@ -15,7 +15,11 @@ dependencies = [
     "livekit-plugins-cartesia",
     "livekit-plugins-openai",
     "livekit-plugins-deepgram",
-    "livekit-plugins-sarvam"
+    "livekit-plugins-sarvam",
+    "livekit-plugins-soniox",
+    "livekit-plugins-gladia",
+    "livekit-plugins-elevenlabs",
+    "livekit-plugins-google"
 ]
 
 [dependency-groups]
