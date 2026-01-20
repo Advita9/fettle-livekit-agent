@@ -332,10 +332,11 @@ async def entrypoint(ctx: JobContext):
         room=ctx.room,
         room_input_options=RoomInputOptions(
             # Use BVCTelephony for phone audio
-            noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
+            noise_cancellation=noise_cancellation.BVC(),
 
         ),
     )
+
 
     # Connect agent to the room
     await ctx.connect()
